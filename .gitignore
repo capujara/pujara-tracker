@@ -1,0 +1,10 @@
+node_modules/
+.next/
+.env*.local
+.DS_Store
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Local-only tracker data used when running on a laptop (see isLocalDev() in lib/tracker.ts).
+# Contains real task data once a Backup is restored into it — must never be committed.
+.tracker-local.json

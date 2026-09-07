@@ -7,6 +7,18 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
+  async headers() {
+    return [
+      // The tracker is an internal staff tool - never index it. The
+      // robots metadata in app/layout.tsx only covers Next routes; /tracker
+      // is a static file (public/tracker.html) served via the rewrite below,
+      // so it needs a response header instead. Applies to every path.
+      {
+        source: '/:path*',
+        headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }],
+      },
+    ]
+  },
   async rewrites() {
     return [
       // Pretty URL for the staff tracker — serves /tracker.html as /tracker

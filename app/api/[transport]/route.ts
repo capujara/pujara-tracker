@@ -699,6 +699,73 @@ const baseHandler = createMcpHandler(
       }
     )
 
+    // -- READ: one client's fee position ------------------------------------
+    server.tool(
+      'get_client_fees',
+      'Fee position of ONE client in one call: tasks billed but not received, tasks to be billed, received history, the GST Annual fees register entry, plus mobile and business name from the Client Master. Use for "how much does X owe", "remaining fees of X", "what have we billed X".',
+      {
+        client: z.string().describe('Client, trade or contact name, partial, case-insensitive'),
+      },
+      async ({ client }) => {
+        const state = await readState()
+        const { dn } = makeNames(state)
+        const q = lc(client)
+        if (!q) return text('Give a client name.')
+
+        /* Client Master: names known to the tracker, with mobile + business */
+        const mob = state.clientMobile || {}, biz = state.clientBusiness || {}
+        const masterNames = new Set<string>([...(state.clients || []), ...Object.keys(mob), ...Object.keys(biz)].map(String))
+        const clients = Array.from(masterNames)
+          .filter((n) => has(n, q) || has(biz[n], q))
+          .map((n) => ({ name: n, mobile: mob[n] || '', business: biz[n] || '' }))
+
+        /* Tasks under any matching name (or a task whose client matches even if not in master) */
+        const tasks = liveTasks(state).filter((t) => has(t.client, q) || has(biz[String(t.client)], q))
+        const row = (t: Task) => ({ id: t.id, task: t.task, client: t.client, person: dn(t.assignee), amount: t.amount ?? null, updated: day(t.mt), remarks: t.remarks || '' })
+        const sum = (arr: Task[]) => arr.reduce((s, t) => s + (Number(t.amount) || 0), 0)
+        const billed = tasks.filter((t) => t.status === 'Billed')
+        const toBill = tasks.filter((t) => t.status === 'To Be Billed')
+        const received = tasks.filter((t) => t.status === 'Received')
+        const done = tasks.filter((t) => t.status === 'Done')
+        const notToBill = tasks.filter((t) => t.status === 'Not to Bill')
+        const open = tasks.filter((t) => STATUS_GROUPS.active.includes(String(t.status) as Status))
+
+        /* GST Annual fees register, matched on trade name or contact */
+        const fees = (state.feesEntries || [])
+          .filter((e: any) => e && !e.deleted && (has(e.tradeName, q) || has(e.contactPerson, q) || has(e.gstin, q)))
+          .map((e: any) => ({
+            tradeName: e.tradeName, gstin: e.gstin, contact: e.contactPerson, mobile: e.mobile,
+            lastYearFees: e.lastYearFees ?? null, billAmount: e.billAmount ?? null, recdAmount: e.recdAmount ?? null,
+            outstanding: (Number(e.billAmount) || 0) - (Number(e.recdAmount) || 0),
+            status: e.status || 'pending', remarks: e.remarks || '',
+          }))
+        const feesOutstanding = fees.filter((e: any) => e.status !== 'pending' && e.status !== 'not_raised').reduce((s: number, e: any) => s + e.outstanding, 0)
+
+        if (!clients.length && !tasks.length && !fees.length) return text(`No client, task or fees entry matches "${client}".`)
+
+        const missingAmt = [...billed, ...toBill].filter((t) => t.amount == null).length
+        return text({
+          query: client,
+          matchedClients: clients,
+          summary: {
+            remainingFromTasks: sum(billed),
+            remainingFromFeesRegister: feesOutstanding,
+            remainingTotal: sum(billed) + feesOutstanding,
+            yetToBeBilled: sum(toBill),
+            receivedSoFar: sum(received),
+            openWork: open.length,
+            ...(missingAmt ? { note: `${missingAmt} billed/to-be-billed task(s) have no amount entered, so the totals understate.` } : {}),
+          },
+          billedNotReceived: billed.map(row),
+          toBeBilled: toBill.map(row),
+          doneNotYetBilled: done.map(row),
+          notToBill: notToBill.length,
+          received: received.map(row),
+          gstAnnualFees: fees,
+        })
+      }
+    )
+
     // -- READ: GST Annual fees ---------------------------------------------
     server.tool(
       'get_fees',

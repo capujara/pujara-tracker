@@ -184,9 +184,16 @@ const daysAgo = (ts: any): number | null => {
   if (!n || isNaN(n)) return null
   return Math.floor((Date.now() - n) / 86400000)
 }
-const text = (obj: any) => ({
-  content: [{ type: 'text' as const, text: typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2) }],
-})
+/* Every object reply is stamped with the moment it was read from the live store, so the
+   reader can see the data is fresh and is not reusing an earlier answer. */
+const text = (obj: any) => {
+  const body = obj && typeof obj === 'object' && !Array.isArray(obj)
+    ? { asOf: new Date().toISOString(), source: 'live tracker store, read now', ...obj }
+    : obj
+  return {
+    content: [{ type: 'text' as const, text: typeof body === 'string' ? body : JSON.stringify(body, null, 2) }],
+  }
+}
 
 /* Role slot ("Emp 5", "Admin 3") -> the person's display name ("Hitakshi"). */
 function nameMap(state: any): Record<string, string> {
